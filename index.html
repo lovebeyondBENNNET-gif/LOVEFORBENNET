@@ -1011,7 +1011,9 @@
                 })
                 .subscribe(async status => {
                     if (status === 'SUBSCRIBED') {
-                        await presenceChannel.track({ user_id: ME, at: Date.now() });
+                        const p = profile || savedProfile;
+                        const myName = p ? p.name : 'Anonymous';
+                        await presenceChannel.track({ user_id: ME, name: myName, at: Date.now() });
                     }
                 });
         }
@@ -1406,9 +1408,25 @@
             const gender = $('f-gender').value;
             const interest = $('f-interest').value;
             if (!name || !gender || !interest) { alert('Please fill all required fields!'); return; }
+
+            // Name uniqueness check against online users
+            if (presenceChannel) {
+                const state = presenceChannel.presenceState();
+                const nameLower = name.toLowerCase();
+                for (const key in state) {
+                    for (const p of state[key]) {
+                        if (p.user_id !== ME && p.name && p.name.toLowerCase() === nameLower) {
+                            alert('This nickname is currently in use by someone else online! Please choose a different one.');
+                            return;
+                        }
+                    }
+                }
+            }
+
             profile = { name, gender, interestedIn: interest, bio: $('f-bio').value, isAnonymous: false };
             savedProfile = profile;
             localStorage.setItem('bennet_profile', JSON.stringify(profile));
+            if (presenceChannel) presenceChannel.track({ user_id: ME, name: name, at: Date.now() });
             showPage('page-chat');
         };
 
