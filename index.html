@@ -18,8 +18,11 @@
   body {
     font-family: 'Inter', sans-serif; color: var(--text); background: #0d0d1a;
     background-image:
-      radial-gradient(ellipse at 20% 20%, rgba(123,44,191,0.35) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 80%, rgba(255,51,102,0.25) 0%, transparent 60%);
+      linear-gradient(rgba(13, 13, 26, 0.88), rgba(13, 13, 26, 0.95)),
+      url('https://educationpost.in/_next/image?url=https%3A%2F%2Fiirfranking2.s3.ap-south-1.amazonaws.com%2F1753870937433-benette.jpg&w=1920&q=75');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
   }
   #app { width:100vw; height:100vh; position:relative; }
   .page { position:absolute; inset:0; display:none; justify-content:center; align-items:center; animation:fadeIn .3s ease; }
