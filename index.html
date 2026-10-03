@@ -813,6 +813,31 @@
                     Profile</button>
                 <button class="btn btn-purple" id="go-anon"><i class="fa-solid fa-user-secret"></i> Join
                     Anonymous</button>
+                <button class="btn" id="go-ball-night" style="background: linear-gradient(135deg, #ff3366, #ff9900); color: white; box-shadow: 0 4px 20px rgba(255, 51, 102, 0.4); margin-top: 0.5rem;"><i class="fa-solid fa-masks-theater"></i> Enter Ball Night Mode</button>
+            </div>
+        </div>
+
+        <!-- ── BALL NIGHT SETUP ── -->
+        <div id="page-ball-night" class="page">
+            <div class="card">
+                <button class="back-btn" id="back-from-ball"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                <div class="logo"><i class="fa-solid fa-masks-theater"></i> Ball Night Setup</div>
+                <p class="sub" style="margin-bottom:1.5rem;">Find your perfect date for the ball! 💃🕺</p>
+                <form id="ball-form">
+                    <div class="form-group">
+                        <label>Your Name *</label>
+                        <input type="text" id="b-name" placeholder="Name or Nickname" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Your Gender *</label>
+                        <select id="b-gender" required>
+                            <option value="" disabled selected>Select gender</option>
+                            <option value="male">Male (Matches with Female)</option>
+                            <option value="female">Female (Matches with Male)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-pink" style="background: linear-gradient(135deg, #ff3366, #ff9900);"><i class="fa-solid fa-heart"></i> Start Matching</button>
+                </form>
             </div>
         </div>
 
@@ -1436,18 +1461,13 @@
             showPage('page-profile');
         };
         $('go-anon').onclick = () => showPage('page-anon');
+        $('go-ball-night').onclick = () => showPage('page-ball-night');
 
         $('back-from-profile').onclick = () => showPage('page-landing');
         $('back-from-anon').onclick = () => showPage('page-landing');
+        $('back-from-ball').onclick = () => showPage('page-landing');
 
-        $('profile-form').onsubmit = function (e) {
-            e.preventDefault();
-            const name = $('f-name').value.trim();
-            const gender = $('f-gender').value;
-            const interest = $('f-interest').value;
-            if (!name || !gender || !interest) { alert('Please fill all required fields!'); return; }
-
-            // Name uniqueness check against online users
+        function checkNameUniqueness(name, onSuccess) {
             if (presenceChannel) {
                 const state = presenceChannel.presenceState();
                 const nameLower = name.toLowerCase();
@@ -1460,12 +1480,46 @@
                     }
                 }
             }
+            onSuccess();
+        }
 
-            profile = { name, gender, interestedIn: interest, bio: $('f-bio').value, isAnonymous: false };
-            savedProfile = profile;
-            localStorage.setItem('bennet_profile', JSON.stringify(profile));
-            if (presenceChannel) presenceChannel.track({ user_id: ME, name: name, at: Date.now() });
-            showPage('page-chat');
+        $('profile-form').onsubmit = function (e) {
+            e.preventDefault();
+            const name = $('f-name').value.trim();
+            const gender = $('f-gender').value;
+            const interest = $('f-interest').value;
+            if (!name || !gender || !interest) { alert('Please fill all required fields!'); return; }
+
+            checkNameUniqueness(name, () => {
+                profile = { name, gender, interestedIn: interest, bio: $('f-bio').value, isAnonymous: false };
+                savedProfile = profile;
+                localStorage.setItem('bennet_profile', JSON.stringify(profile));
+                if (presenceChannel) presenceChannel.track({ user_id: ME, name: name, at: Date.now() });
+                showPage('page-chat');
+            });
+        };
+
+        $('ball-form').onsubmit = function (e) {
+            e.preventDefault();
+            const name = $('b-name').value.trim();
+            const gender = $('b-gender').value;
+            if (!name || !gender) { alert('Please provide your name and gender!'); return; }
+
+            const interest = gender === 'male' ? 'female' : 'male';
+            let bioStr = "Ball Night Participant";
+
+            checkNameUniqueness(name, () => {
+                profile = { name, gender, interestedIn: interest, bio: bioStr, isAnonymous: false };
+                savedProfile = profile;
+                localStorage.setItem('bennet_profile', JSON.stringify(profile));
+                if (presenceChannel) presenceChannel.track({ user_id: ME, name: name, at: Date.now() });
+                showPage('page-chat');
+                
+                // Automatically trigger Ball Night matchmaking
+                setTimeout(() => {
+                    findPartner('ball_night');
+                }, 500);
+            });
         };
 
         $('enter-anon').onclick = () => {
