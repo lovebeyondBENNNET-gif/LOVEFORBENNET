@@ -889,6 +889,8 @@
                         <h4>Find Partners</h4>
                         <button class="btn btn-outline" id="btn-random" onclick="toggleSidebar(false)"><i
                                 class="fa-solid fa-shuffle"></i> Random Chat</button>
+                        <button class="btn btn-pink" id="btn-ball-night" onclick="toggleSidebar(false)" style="margin-top:0.4rem; box-shadow:0 0 15px rgba(255,51,102,0.6);"><i
+                                class="fa-solid fa-masks-theater"></i> Ball Night Match</button>
                     </div>
 
                     <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
@@ -973,6 +975,7 @@
         let pollTimer = null;
         let msgChannel = null;
         let presenceChannel = null;
+        let currentEventMode = null;
 
         const $ = id => document.getElementById(id);
 
@@ -1215,39 +1218,69 @@
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         }
 
-        async function findPartner() {
+        async function findPartner(eventMode = null) {
             if (!profile) { alert('Profile not set.'); return; }
+            
+            const isBallNight = eventMode === 'ball_night';
+            currentEventMode = eventMode;
+
+            let myGender = profile.gender;
+            let targetGender = profile.interestedIn;
+
+            if (isBallNight) {
+                if (myGender === 'male') targetGender = 'female';
+                else if (myGender === 'female') targetGender = 'male';
+                else {
+                    alert('Ball Night matchmaking requires your profile gender to be Male or Female!');
+                    return;
+                }
+                myGender += '_bn';
+                targetGender += '_bn';
+            }
+            
+            let myInterest = targetGender;
+
             $('btn-random').disabled = true;
+            if ($('btn-ball-night')) $('btn-ball-night').disabled = true;
             $('btn-skip').disabled = true;
 
             stopPoll();
             if (msgChannel) { sb.removeChannel(msgChannel); msgChannel = null; }
             roomId = null;
 
-            // Clear active state in sidebar
             document.querySelectorAll('.recent-item').forEach(el => el.classList.remove('active-chat'));
 
             $('partner-name').innerHTML = '<span class="spinner"></span> Searching...';
-            $('partner-status').textContent = 'Looking for someone online...';
+            $('partner-status').textContent = isBallNight ? 'Looking for a Ball Night partner...' : 'Looking for someone online...';
             $('messages').innerHTML = '';
             $('msg-input').disabled = true;
             $('send-btn').disabled = true;
-            sysMsg('🔍 Looking for a match...');
+            sysMsg(isBallNight ? '🎭 Looking for a Ball Night match...' : '🔍 Looking for a match...');
 
             await sb.from('waiting_queue').delete().eq('user_id', ME);
 
-            const { data: waiting } = await sb.from('waiting_queue')
-                .select('*').neq('user_id', ME)
-                .order('joined_at', { ascending: true }).limit(1);
+            async function checkQueue() {
+                let query = sb.from('waiting_queue').select('*').neq('user_id', ME);
+                if (targetGender !== 'everyone') {
+                    query = query.eq('gender', targetGender);
+                } else {
+                    query = query.not('gender', 'like', '%_bn');
+                }
+                const everyoneTarget = isBallNight ? 'everyone_bn' : 'everyone';
+                query = query.or(`interested_in.eq.${myGender},interested_in.eq.${everyoneTarget}`);
+                return await query.order('joined_at', { ascending: true }).limit(1);
+            }
+
+            const { data: waiting } = await checkQueue();
 
             if (waiting && waiting.length > 0) {
-                await tryCreateRoom(waiting[0]);
+                await tryCreateRoom(waiting[0], isBallNight);
                 return;
             }
 
             await sb.from('waiting_queue').insert({
-                user_id: ME, name: profile.name, gender: profile.gender,
-                interested_in: profile.interestedIn, is_anonymous: profile.isAnonymous
+                user_id: ME, name: profile.name, gender: myGender,
+                interested_in: myInterest, is_anonymous: profile.isAnonymous
             });
 
             sysMsg('⏳ Waiting for someone to connect...');
@@ -1270,24 +1303,21 @@
                     const { data: pInfo } = await sb.from('waiting_queue').select('*').eq('user_id', partnerId).limit(1);
                     const partner = (pInfo && pInfo.length > 0) ? pInfo[0]
                         : { user_id: partnerId, name: 'Someone', is_anonymous: true, gender: '' };
-                    joinRoom(r.id, partner);
+                    joinRoom(r.id, partner, isBallNight);
                     return;
                 }
 
                 // Check if someone new joined the queue
-                const { data: newWaiting } = await sb.from('waiting_queue')
-                    .select('*').neq('user_id', ME)
-                    .order('joined_at', { ascending: true }).limit(1);
-                if (newWaiting && newWaiting.length > 0) await tryCreateRoom(newWaiting[0]);
+                const { data: newWaiting } = await checkQueue();
+                if (newWaiting && newWaiting.length > 0) await tryCreateRoom(newWaiting[0], isBallNight);
 
-                // Auto-retry after 30s — refresh queue entry and keep searching
+                // Auto-retry after 30s
                 if (dots > 15) {
                     dots = 0;
-                    // Remove stale queue entry and re-insert to stay fresh at top
                     await sb.from('waiting_queue').delete().eq('user_id', ME);
                     await sb.from('waiting_queue').insert({
-                        user_id: ME, name: profile.name, gender: profile.gender,
-                        interested_in: profile.interestedIn, is_anonymous: profile.isAnonymous
+                        user_id: ME, name: profile.name, gender: myGender,
+                        interested_in: myInterest, is_anonymous: profile.isAnonymous
                     });
                     $('messages').innerHTML = '';
                     sysMsg('🔄 Still searching... refreshing your spot in the queue.');
@@ -1295,10 +1325,10 @@
             }, 2000);
         }
 
-        async function tryCreateRoom(partner) {
+        async function tryCreateRoom(partner, isBallNight = false) {
             stopPoll();
             const { error: delErr } = await sb.from('waiting_queue').delete().eq('user_id', partner.user_id);
-            if (delErr) { await findPartner(); return; }
+            if (delErr) { await findPartner(isBallNight ? 'ball_night' : null); return; }
 
             const { data: room, error: roomErr } = await sb.from('rooms')
                 .insert({ user1_id: ME, user2_id: partner.user_id })
@@ -1307,31 +1337,39 @@
             if (roomErr || !room) {
                 sysMsg('❌ Matchmaking error. Try again!');
                 $('btn-random').disabled = false;
+                if ($('btn-ball-night')) $('btn-ball-night').disabled = false;
                 $('btn-skip').disabled = false;
                 return;
             }
             await sb.from('waiting_queue').delete().eq('user_id', ME);
-            joinRoom(room.id, partner);
+            joinRoom(room.id, partner, isBallNight);
         }
 
         // ═══════════════════════════════════════════════════════
         //  JOIN ROOM
         // ═══════════════════════════════════════════════════════
-        function joinRoom(rid, partner) {
+        function joinRoom(rid, partner, isBallNight = false) {
             if (roomId === rid) return;
             roomId = rid;
 
             const name = partner.is_anonymous ? 'Anonymous User' : (partner.name || 'Someone');
-            const sub = partner.is_anonymous ? '🕶️ Incognito' : ('💬 ' + (partner.gender || ''));
+            let sub = partner.is_anonymous ? '🕶️ Incognito' : ('💬 ' + (partner.gender || ''));
+            if (isBallNight) sub = '🎭 Ball Night Match - ' + sub;
 
             $('partner-name').textContent = name;
             $('partner-status').textContent = sub;
             $('messages').innerHTML = '';
-            sysMsg('🎉 Connected with <strong>' + escHtml(name) + '</strong>! Say hi 👋');
+            
+            if (isBallNight) {
+                sysMsg('🎉 Connected for <strong>Ball Night</strong> with <strong>' + escHtml(name) + '</strong>! 🕺💃');
+            } else {
+                sysMsg('🎉 Connected with <strong>' + escHtml(name) + '</strong>! Say hi 👋');
+            }
 
             $('msg-input').disabled = false;
             $('send-btn').disabled = false;
             $('btn-random').disabled = false;
+            if ($('btn-ball-night')) $('btn-ball-night').disabled = false;
             $('btn-skip').disabled = false;
             $('msg-input').focus();
 
@@ -1435,9 +1473,10 @@
             showPage('page-chat');
         };
 
-        $('btn-random').onclick = findPartner;
-        $('btn-skip').onclick = findPartner;
-        $('btn-leave').onclick = () => showPage('page-landing');
+        $('btn-random').onclick = () => findPartner();
+            if ($('btn-ball-night')) $('btn-ball-night').onclick = () => findPartner('ball_night');
+            $('btn-skip').onclick = () => findPartner(currentEventMode);
+            $('btn-leave').onclick = () => showPage('page-landing');
         $('send-btn').onclick = sendMsg;
         $('msg-input').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
 
